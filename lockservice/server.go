@@ -36,7 +36,7 @@ func (ls *LockServer) Lock(args *LockArgs, reply *LockReply) error {
 
 	var requestID = args.RequestID
 
-	_, present = ls.requestsSeen[requestID]
+	_, present := ls.requestsSeen[requestID]
 
 	if present {
 		reply.OK = ls.requestsSeen[requestID]
@@ -68,7 +68,7 @@ func (ls *LockServer) Unlock(args *UnlockArgs, reply *UnlockReply) error {
 
 	var requestID = args.RequestID
 
-	_, present = ls.requestsSeen[requestID]
+	_, present := ls.requestsSeen[requestID]
 
 	if present {
 		reply.OK = ls.requestsSeen[requestID]
