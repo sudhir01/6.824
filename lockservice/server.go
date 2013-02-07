@@ -54,10 +54,10 @@ func (ls *LockServer) Unlock(args *UnlockArgs, reply *UnlockReply) error {
 	locked, _ := ls.locks[args.Lockname]
 
 	if locked {
-		reply.OK = true
+		reply.OK = false
 		ls.locks[args.Lockname] = false
 	} else {
-		reply.OK = false
+		reply.OK = true
 	}
 
 	return nil
