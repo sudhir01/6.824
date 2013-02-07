@@ -1,6 +1,7 @@
 package lockservice
 
 import "net/rpc"
+import "rand"
 
 // import "fmt"
 
@@ -64,6 +65,8 @@ func (ck *Clerk) Lock(lockname string) bool {
 	args := &LockArgs{}
 	args.Lockname = lockname
 	var reply LockReply
+	var randomID = rand.Int()
+	args.randomID = randomID
 
 	// send an RPC request, wait for the reply.
 	ok := call(ck.servers[0], "LockServer.Lock", args, &reply)
@@ -91,6 +94,9 @@ func (ck *Clerk) Unlock(lockname string) bool {
 	args.Lockname = lockname
 	var reply UnlockReply
 
+	var requestID = rand.Int()
+	args.requestID = requestID
+	
 	// send an RPC request, wait for the reply.
 	ok := call(ck.servers[0], "LockServer.Unlock", args, &reply)
 	if ok == false {

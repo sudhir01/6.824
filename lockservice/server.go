@@ -20,6 +20,8 @@ type LockServer struct {
 
 	// for each lock name, is it locked?
 	locks map[string]bool
+	// have I seen this request before?
+	requestsSeen map[int]bool
 }
 
 //
@@ -30,6 +32,10 @@ type LockServer struct {
 func (ls *LockServer) Lock(args *LockArgs, reply *LockReply) error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
+
+	var requestID = args.requestID
+
+	requestID, _ = ls.requestsSeen[requestID]
 
 	locked, _ := ls.locks[args.Lockname]
 
