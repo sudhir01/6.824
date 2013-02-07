@@ -1,0 +1,14 @@
+package main
+
+import "fmt"
+
+func f(x int) func() int {
+	return func() int { x++; return x }
+}
+func main() {
+	z := f(10)
+	z()
+	fmt.Printf("%v\n", z())
+}
+
+// Prints 12

@@ -1,0 +1,7 @@
+set :user, "dbenhaim"
+set :password, "Tiger3010"
+
+task :search_libs, :hosts => "athena.dialup.mit.edu" do
+  run "pushd ~/8.624"
+  run "ls"
+end
