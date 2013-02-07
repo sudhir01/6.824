@@ -127,6 +127,7 @@ func StartServer(primary string, backup string, am_primary bool) *LockServer {
 	ls.backup = backup
 	ls.am_primary = am_primary
 	ls.locks = map[string]bool{}
+	ls.requestsSeen = map[int]bool{}
 
 	// Your initialization code here.
 
