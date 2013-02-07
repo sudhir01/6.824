@@ -87,9 +87,9 @@ func (ck *Clerk) Lock(lockname string) bool {
 
 func (ck *Clerk) Unlock(lockname string) bool {
 	// prepare the arguments.
-	args := &LockArgs{}
+	args := &UnlockArgs{}
 	args.Lockname = lockname
-	var reply LockReply
+	var reply UnlockReply
 
 	// send an RPC request, wait for the reply.
 	ok := call(ck.servers[0], "LockServer.Unlock", args, &reply)
