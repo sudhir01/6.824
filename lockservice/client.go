@@ -89,6 +89,6 @@ func (ck *Clerk) Unlock(lockname string) bool {
 	if ok == false {
 		return false
 	}
-
+	fmt.Println("reply %s", reply.OK)
 	return reply.OK
 }
