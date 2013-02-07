@@ -71,9 +71,9 @@ func (ck *Clerk) Lock(lockname string) bool {
 		//primary not available
 		//try backup
 		ok = call(ck.servers[1], "LockServer.Lock", args, &reply)
-	}
-	if ok == false {
-		return false
+		if ok == false {
+			return false
+		}
 	}
 
 	return reply.OK
@@ -97,9 +97,9 @@ func (ck *Clerk) Unlock(lockname string) bool {
 		//primary not available
 		//try backup
 		ok = call(ck.servers[1], "LockServer.Unlock", args, &reply)
-	}
-	if ok == false {
-		return false
+		if ok == false {
+			return false
+		}
 	}
 
 	return reply.OK
