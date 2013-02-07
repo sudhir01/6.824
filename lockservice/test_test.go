@@ -126,7 +126,7 @@ func TestPrimaryFail2(t *testing.T) {
 	tl(t, ck2, "c", true)
 	tl(t, ck1, "c", false)
 	tu(t, ck2, "c", true)
-	tl(t, ck1, "ck", true)
+	tl(t, ck1, "c", true)
 
 	b.kill()
 	fmt.Printf("  ... Passed\n")

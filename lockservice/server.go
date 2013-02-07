@@ -20,6 +20,7 @@ type LockServer struct {
 
 	// for each lock name, is it locked?
 	locks map[string]bool
+
 	// have I seen this request before?
 	requestsSeen map[int]bool
 }
@@ -35,25 +36,23 @@ func (ls *LockServer) Lock(args *LockArgs, reply *LockReply) error {
 
 	var requestID = args.requestID
 
-	requestID, _ = ls.requestsSeen[requestID]
+	_, present = ls.requestsSeen[requestID]
 
-	locked, _ := ls.locks[args.Lockname]
-
-	if locked {
-		reply.OK = false
+	if present {
+		reply.OK = ls.requestsSeen[requestID]
 	} else {
-		reply.OK = true
-		ls.locks[args.Lockname] = true
+		locked, _ := ls.locks[args.Lockname]
+
+		if locked {
+			reply.OK = false
+		} else {
+			reply.OK = true
+			ls.locks[args.Lockname] = true
+		}
+		ls.requestsSeen[requestID] = reply.OK
 		if ls.am_primary {
 			var backupReply LockReply
-			ok := call(ls.backup, "LockServer.Lock", args, &backupReply)
-			if ok == false {
-				//backup is down
-				//do something crazy
-			} else {
-				//backup is up
-				//do something less crazy
-			}
+			defer call(ls.backup, "LockServer.Lock", args, &backupReply)
 		}
 	}
 
@@ -67,26 +66,26 @@ func (ls *LockServer) Unlock(args *UnlockArgs, reply *UnlockReply) error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	locked, _ := ls.locks[args.Lockname]
+	_, present = ls.requestsSeen[requestID]
 
-	if locked {
-		reply.OK = true
-		ls.locks[args.Lockname] = false
+	if present {
+		reply.OK = ls.requestsSeen[requestID]
+	} else {
+		locked, _ := ls.locks[args.Lockname]
+
+		if locked {
+			reply.OK = true
+			ls.locks[args.Lockname] = false
+
+		} else {
+			reply.OK = false
+		}
+		ls.requestsSeen[requestID] = reply.OK
 		if ls.am_primary {
 			var backupReply UnlockReply
-			ok := call(ls.backup, "LockServer.Unlock", args, &backupReply)
-			if ok == false {
-				//backup is down
-				//do something crazy
-			} else {
-				//backup is up
-				//do something less crazy
-			}
+			defer call(ls.backup, "LockServer.Unlock", args, &backupReply)
 		}
-	} else {
-		reply.OK = false
 	}
-
 	return nil
 }
 
