@@ -34,7 +34,7 @@ func (ls *LockServer) Lock(args *LockArgs, reply *LockReply) error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	var requestID = args.requestID
+	var requestID = args.RequestID
 
 	_, present = ls.requestsSeen[requestID]
 
@@ -65,6 +65,8 @@ func (ls *LockServer) Lock(args *LockArgs, reply *LockReply) error {
 func (ls *LockServer) Unlock(args *UnlockArgs, reply *UnlockReply) error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
+
+	var requestID = args.RequestID
 
 	_, present = ls.requestsSeen[requestID]
 
