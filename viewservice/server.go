@@ -16,15 +16,61 @@ type ViewServer struct {
 
 
   // Your declarations here.
+  pings map[string]ServerStatus
+  primary string
+  backup string
+  currentView View
+
+  primaryIsUpToDate bool
+  servers map[string]int
+
 }
 
 //
 // server Ping RPC handler.
 //
 func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
+  //who pinged the viewserver?
+  pingFrom := args.Me
 
-  // Your code here.
+  //what view do they think it is?
+  pingViewNum := args.Viewnum
+  fmt.Println("Ping from: ", pingFrom, pingViewNum)// vs.primary, vs.backup)
+  now := time.Now()
 
+  if vs.currentView.Viewnum == 0 && vs.currentView.Primary == "" {
+    //hurray first time!
+    vs.primary = pingFrom
+    vs.currentView.Primary = vs.primary
+    vs.currentView.Viewnum = 1
+  } else if vs.currentView.Backup == "" && vs.primary != pingFrom {
+    vs.backup = pingFrom
+    vs.currentView.Backup = vs.backup
+    vs.currentView.Viewnum++
+    fmt.Println("added backup in ping ", vs.currentView.Viewnum)
+  } else {
+
+  }
+
+  //is there a primary?
+  if vs.primary != "" {
+    //is the primary up to date on the current view?
+    if vs.primary == pingFrom {
+      if pingViewNum == vs.currentView.Viewnum {
+        vs.primaryIsUpToDate = true
+      } else {
+        vs.primaryIsUpToDate = false
+      }
+    }
+  }
+  //update ping table
+  serverStatus := new(ServerStatus)
+  serverStatus.LastPingTime = now
+  serverStatus.LastViewNum = pingViewNum
+  vs.pings[pingFrom] = *serverStatus
+
+  //reply to the ping
+  reply.View = vs.currentView
   return nil
 }
 
@@ -32,9 +78,7 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 // server Get() RPC handler.
 //
 func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
-
-  // Your code here.
-
+  reply.View = vs.currentView
   return nil
 }
 
@@ -44,9 +88,91 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 // if servers have died or recovered, and change the view
 // accordingly.
 //
+// The view service proceeds to a new view when either it hasn't received a Ping from the primary or backup for DeadPings PingIntervals, 
+// or if there is no backup and there's an idle server (a server that's been Pinging but is neither the primary nor the backup). 
+// But the view service must not change views until the primary from the current view acknowledges that it is operating in the current view
+// (by sending a Ping with the current view number). If the view service has not yet received an acknowledgment for the current view 
+// from the primary of the current view, the view service should not change views even if it thinks that the primary or backup has died.
+//
+// The acknowledgment rule prevents the view service from getting more than one view ahead of the key/value servers. 
+// If the view service could get arbitrarily far ahead, then it would need a more complex design in which it kept a history of views, 
+// allowed key/value servers to ask about old views, and garbage-collected information about old views when appropriate.
 func (vs *ViewServer) tick() {
+  //if there is a primary
+  if vs.primary != "" {
+    now := time.Now()
+    isPrimaryAlive := true
+    isBackup := true
+    idleServer := ""
+    for server, serverStatus := range vs.pings {
+      timePinged := serverStatus.LastPingTime
+      lastViewNum := serverStatus.LastViewNum
+      //check on the server's status
+      if now.Sub(timePinged) > PingInterval {
+        life, ok := vs.servers[server]
+        if ok {
+          if life > 0 {
+            //server still has x many lives left
+            vs.servers[server] = life - 1
+          } else {
+            //methinks server is dead
+            if server == vs.primary {
+              //oh noes its the primary!
+              isPrimaryAlive = false
+            } else if server == vs.backup {
+              //oh noes its the backup!
+              isBackup = false
+            }
+          }
+        } else {
+          //first time I've heard from this server
+          vs.servers[server] = DeadPings
+        }
+      } 
+      //did the primary restart?
+      if server == vs.primary {
+        if lastViewNum < vs.currentView.Viewnum {
+          isPrimaryAlive = false
+          fmt.Println("Detected server restart")
+        }
+      }
+      if server != vs.primary && server != vs.backup {
+        idleServer = server
+      }
+    }
+    if !isPrimaryAlive {
+      //primary is dead -> promote backup
+      if isBackup{
+        vs.primary = vs.backup
+        vs.backup = ""
+        vs.currentView.Primary = vs.primary
+        vs.currentView.Backup = vs.backup
+        if idleServer != "" {
+          vs.backup = idleServer
+          vs.currentView.Backup = vs.backup
+          fmt.Println("added backup in tick ", vs.currentView.Viewnum)
+        }
+        vs.currentView.Viewnum++
+      } else {
+        //the end is here!
+      }
+    }
+  // if !isBackup {
+  //   //no backup - promote idle server
+  //   if idleServer != "" {
+  //     vs.backup = idleServer
+  //     vs.currentView.Backup = vs.backup
+  //     fmt.Println("added backup in tick ", vs.currentView.Viewnum)
+  //     if vs.lastViewNum == vs.currentView.Viewnum{
+  //       vs.currentView.Viewnum++
+  //     }
+  //   }
+  // }
+  } else{
+    //primary is still alive and kicking
 
-  // Your code here.
+  }
+  fmt.Println("The currentView: ", vs.currentView.Viewnum, vs.currentView.Primary, vs.currentView.Backup)
 }
 
 //
@@ -63,6 +189,18 @@ func StartServer(me string) *ViewServer {
   vs := new(ViewServer)
   vs.me = me
   // Your vs.* initializations here.
+  vs.pings = map[string]ServerStatus{}
+  vs.primary = ""
+  vs.backup = ""
+  currentView := new(View)
+  currentView.Viewnum = 0
+  currentView.Primary = vs.primary
+  currentView.Backup = vs.backup
+  vs.currentView = *currentView
+  vs.primaryIsUpToDate = false
+
+  vs.servers = map[string]int{}
+
 
   // tell net/rpc about our RPC server and handlers.
   rpcs := rpc.NewServer()

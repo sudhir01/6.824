@@ -78,3 +78,12 @@ type GetArgs struct {
 type GetReply struct {
   View View
 }
+
+
+//
+// ServerStatus type stored for remembering pings and timing and such
+//
+type ServerStatus struct {
+	LastViewNum uint
+	LastPingTime time.Time
+}
