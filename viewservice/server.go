@@ -35,7 +35,7 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 
   //what view do they think it is?
   pingViewNum := args.Viewnum
-  fmt.Println("Ping from: ", pingFrom, pingViewNum)// vs.primary, vs.backup)
+  // fmt.Println("Ping from: ", pingFrom, pingViewNum, vs.primary)//, vs.backup)
   now := time.Now()
 
   if vs.currentView.Viewnum == 0 && vs.currentView.Primary == "" {
@@ -47,7 +47,7 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
     vs.backup = pingFrom
     vs.currentView.Backup = vs.backup
     vs.currentView.Viewnum++
-    fmt.Println("added backup in ping ", vs.currentView.Viewnum)
+    // fmt.Println("added backup in ping ", vs.currentView.Viewnum)
   } else {
 
   }
@@ -121,6 +121,7 @@ func (vs *ViewServer) tick() {
               isPrimaryAlive = false
             } else if server == vs.backup {
               //oh noes its the backup!
+              // fmt.Println("Backup is dead")
               isBackup = false
             }
           }
@@ -128,21 +129,23 @@ func (vs *ViewServer) tick() {
           //first time I've heard from this server
           vs.servers[server] = DeadPings
         }
-      } 
+      } else {
+        vs.servers[server] = DeadPings
+      }
       //did the primary restart?
       if server == vs.primary {
-        if lastViewNum < vs.currentView.Viewnum {
+        if lastViewNum == 0 && vs.currentView.Viewnum != 0 {
           isPrimaryAlive = false
-          fmt.Println("Detected server restart")
+          vs.primaryIsUpToDate = true
+          // fmt.Println("Detected server restart")
         }
-      }
-      if server != vs.primary && server != vs.backup {
+      } else if server != vs.primary && server != vs.backup && vs.servers[server] > 0 {
         idleServer = server
       }
     }
     if !isPrimaryAlive {
       //primary is dead -> promote backup
-      if isBackup{
+      if isBackup && vs.primaryIsUpToDate {
         vs.primary = vs.backup
         vs.backup = ""
         vs.currentView.Primary = vs.primary
@@ -150,29 +153,30 @@ func (vs *ViewServer) tick() {
         if idleServer != "" {
           vs.backup = idleServer
           vs.currentView.Backup = vs.backup
-          fmt.Println("added backup in tick ", vs.currentView.Viewnum)
+          // fmt.Println("added backup in tick ", vs.currentView.Viewnum)
         }
         vs.currentView.Viewnum++
       } else {
         //the end is here!
       }
     }
-  // if !isBackup {
-  //   //no backup - promote idle server
-  //   if idleServer != "" {
-  //     vs.backup = idleServer
-  //     vs.currentView.Backup = vs.backup
-  //     fmt.Println("added backup in tick ", vs.currentView.Viewnum)
-  //     if vs.lastViewNum == vs.currentView.Viewnum{
-  //       vs.currentView.Viewnum++
-  //     }
-  //   }
-  // }
+  if !isBackup {
+    //no backup - promote idle server
+    if idleServer != "" {
+      vs.backup = idleServer
+      vs.currentView.Backup = vs.backup
+      // fmt.Println("added backup in tick ", vs.currentView.Viewnum)
+      vs.currentView.Viewnum++
+    } else{
+      vs.backup = ""
+      vs.currentView.Backup = ""
+    }
+  }
   } else{
-    //primary is still alive and kicking
+    //primary is ""
 
   }
-  fmt.Println("The currentView: ", vs.currentView.Viewnum, vs.currentView.Primary, vs.currentView.Backup)
+  // fmt.Println("The currentView: ", vs.currentView.Viewnum, vs.currentView.Primary, vs.currentView.Backup)
 }
 
 //

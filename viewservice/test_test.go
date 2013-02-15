@@ -157,7 +157,7 @@ func Test1(t *testing.T) {
   }
   fmt.Printf("  ... Passed\n")
   
-
+  fmt.Printf("Resetting down to just 3...\n")
   // set up a view with just 3 as primary,
   // to prepare for the next test.
   {
@@ -200,6 +200,7 @@ func Test1(t *testing.T) {
       }
       time.Sleep(PingInterval)
     }
+    fmt.Printf("3 doesn't ack, 1 does...\n")
     check(t, ck2, ck3.me, ck1.me, vy.Viewnum)
   }
   fmt.Printf("  ... Passed\n")
