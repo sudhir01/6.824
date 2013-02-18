@@ -14,6 +14,8 @@ import "math/rand"
 
 type Op struct {
   // Your definitions here.
+  // Field names must start with capital letters,
+  // otherwise RPC will break.
 }
 
 type KVPaxos struct {
@@ -26,6 +28,7 @@ type KVPaxos struct {
 
   // Your definitions here.
 }
+
 
 
 func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
