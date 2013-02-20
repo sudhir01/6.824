@@ -19,21 +19,44 @@ type PBServer struct {
   unreliable bool // for testing
   me string
   vs *viewservice.Clerk
+  
   // Your declarations here.
+  db map[string]string //key/value storage
+  state string //primary, backup etc
+  currentView viewservice.View
+
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
-
-  // Your code here.
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
+  if pb.state == "primary" {
+    if value, ok := pb.db[args.Key]; ok {
+      reply.Value = value
+      reply.Err = "OK"
+    } else {
+      reply.Value = ""
+      reply.Err = ErrNoKey
+    }
+  } else {
+    reply.Err = ErrWrongServer
+  }
 
   return nil
 }
 
 func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
   reply.Err = OK
 
 
   // Your code here.
+  if pb.state == "primary" {
+    pb.db[args.Key] = args.Value
+  } else {
+    reply.Err = ErrWrongServer
+  }
 
   return nil
 }
@@ -46,8 +69,19 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
 //   manage transfer of state from primary to new backup.
 //
 func (pb *PBServer) tick() {
-
-  // Your code here.
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
+  //ping viewserver
+  view, _ := pb.vs.Ping(pb.currentView.Viewnum)
+  fmt.Println("tick ping: ", pb.me, view.Primary, view.Viewnum)
+  pb.currentView = view
+  if pb.currentView.Primary == pb.me {
+    pb.state = "primary"
+  } else if pb.currentView.Backup == pb.me {
+    pb.state = "backup"
+  } else {
+    pb.state = "neither"
+  }
 }
 
 // tell the server to shut itself down.
@@ -63,6 +97,14 @@ func StartServer(vshost string, me string) *PBServer {
   pb.me = me
   pb.vs = viewservice.MakeClerk(me, vshost)
   // Your pb.* initializations here.
+  pb.db = map[string]string{}
+  pb.state = "unknown"
+  currentView := new(viewservice.View)
+  currentView.Viewnum = 0
+  currentView.Primary = ""
+  currentView.Backup = ""
+  pb.currentView = *currentView
+
 
   rpcs := rpc.NewServer()
   rpcs.Register(pb)

@@ -21,7 +21,7 @@ type ViewServer struct {
   backup string
   currentView View
 
-  primaryIsUpToDate bool
+  primaryAckedCurrentView bool
   servers map[string]int
 
 }
@@ -30,6 +30,9 @@ type ViewServer struct {
 // server Ping RPC handler.
 //
 func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
+  vs.mu.Lock()
+  defer vs.mu.Unlock()
+
   //who pinged the viewserver?
   pingFrom := args.Me
 
@@ -37,38 +40,23 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
   pingViewNum := args.Viewnum
   // fmt.Println("Ping from: ", pingFrom, pingViewNum, vs.primary)//, vs.backup)
   now := time.Now()
-
-  if vs.currentView.Viewnum == 0 && vs.currentView.Primary == "" {
-    //hurray first time!
-    vs.primary = pingFrom
-    vs.currentView.Primary = vs.primary
-    vs.currentView.Viewnum = 1
-  } else if vs.currentView.Backup == "" && vs.primary != pingFrom {
-    vs.backup = pingFrom
-    vs.currentView.Backup = vs.backup
-    vs.currentView.Viewnum++
-    // fmt.Println("added backup in ping ", vs.currentView.Viewnum)
-  } else {
-
-  }
-
-  //is there a primary?
-  if vs.primary != "" {
-    //is the primary up to date on the current view?
-    if vs.primary == pingFrom {
-      if pingViewNum == vs.currentView.Viewnum {
-        vs.primaryIsUpToDate = true
-      } else {
-        vs.primaryIsUpToDate = false
-      }
-    }
-  }
   //update ping table
-  serverStatus := new(ServerStatus)
-  serverStatus.LastPingTime = now
-  serverStatus.LastViewNum = pingViewNum
-  vs.pings[pingFrom] = *serverStatus
-
+  if serverStatus, ok := vs.pings[pingFrom]; ok {
+    serverStatus.LastPingTime = now
+    serverStatus.LastViewNum = serverStatus.CurrentViewNum
+    serverStatus.CurrentViewNum = pingViewNum
+    vs.pings[pingFrom] = serverStatus
+    // fmt.Println("serverstatus", serverStatus)
+  } else {
+    serverStatus := new(ServerStatus)
+    serverStatus.LastPingTime = now
+    serverStatus.LastViewNum = serverStatus.CurrentViewNum
+    serverStatus.CurrentViewNum = vs.currentView.Viewnum
+    vs.pings[pingFrom] = *serverStatus
+  }
+  if pingFrom == vs.currentView.Primary && pingViewNum == vs.currentView.Viewnum {
+    vs.primaryAckedCurrentView = true
+  }
   //reply to the ping
   reply.View = vs.currentView
   return nil
@@ -78,6 +66,8 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 // server Get() RPC handler.
 //
 func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
+  vs.mu.Lock()
+  defer vs.mu.Unlock()
   reply.View = vs.currentView
   return nil
 }
@@ -98,31 +88,51 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 // If the view service could get arbitrarily far ahead, then it would need a more complex design in which it kept a history of views, 
 // allowed key/value servers to ask about old views, and garbage-collected information about old views when appropriate.
 func (vs *ViewServer) tick() {
-  //if there is a primary
-  if vs.primary != "" {
+  vs.mu.Lock()
+  defer vs.mu.Unlock()
+  //setup
+  if vs.currentView.Viewnum == 0 {
+    for server, _ := range vs.pings { //serverStatus
+      if vs.currentView.Primary == "" {
+        vs.currentView.Primary = server
+      } 
+    }
+    if vs.currentView.Primary != "" {
+      vs.currentView.Viewnum = 1
+      vs.primaryAckedCurrentView = false
+    }
+  //initial backup setup
+  } else if vs.currentView.Viewnum == 1 {
+    for server, _ := range vs.pings { //serverStatus
+      if vs.currentView.Backup == "" && server != vs.currentView.Primary {
+        vs.currentView.Backup = server
+      } 
+    }
+    if vs.currentView.Primary != "" && vs.currentView.Backup != "" {
+      vs.currentView.Viewnum = 2
+      vs.primaryAckedCurrentView = false
+    }
+  //everything else
+  } else {
+    //figure out the state
     now := time.Now()
-    isPrimaryAlive := true
-    isBackup := true
+    oldPrimary := ""
     idleServer := ""
     for server, serverStatus := range vs.pings {
       timePinged := serverStatus.LastPingTime
       lastViewNum := serverStatus.LastViewNum
-      //check on the server's status
+      currentViewNum := serverStatus.CurrentViewNum
       if now.Sub(timePinged) > PingInterval {
-        life, ok := vs.servers[server]
-        if ok {
+        if life, ok := vs.servers[server]; ok {
           if life > 0 {
-            //server still has x many lives left
             vs.servers[server] = life - 1
           } else {
             //methinks server is dead
-            if server == vs.primary {
-              //oh noes its the primary!
-              isPrimaryAlive = false
-            } else if server == vs.backup {
-              //oh noes its the backup!
-              // fmt.Println("Backup is dead")
-              isBackup = false
+            if server == vs.currentView.Primary {
+              vs.currentView.Primary = "dead"
+              oldPrimary = server
+            } else if server == vs.currentView.Backup {
+              vs.currentView.Backup = ""
             }
           }
         } else {
@@ -130,54 +140,49 @@ func (vs *ViewServer) tick() {
           vs.servers[server] = DeadPings
         }
       } else {
+        //alive and pinging
         vs.servers[server] = DeadPings
       }
-      //did the primary restart?
-      if server == vs.primary {
-        if lastViewNum == 0 && vs.currentView.Viewnum != 0 {
-          isPrimaryAlive = false
-          vs.primaryIsUpToDate = true
-          // fmt.Println("Detected server restart")
+      //primary restart
+      if server == vs.currentView.Primary {
+        if lastViewNum != currentViewNum && currentViewNum == 0 {
+          vs.currentView.Primary = "dead"
+          oldPrimary = server
         }
-      } else if server != vs.primary && server != vs.backup && vs.servers[server] > 0 {
+      } else if server != vs.currentView.Primary && server != vs.currentView.Backup && vs.servers[server] > 0 {
         idleServer = server
       }
     }
-    if !isPrimaryAlive {
-      //primary is dead -> promote backup
-      if isBackup && vs.primaryIsUpToDate {
-        vs.primary = vs.backup
-        vs.backup = ""
-        vs.currentView.Primary = vs.primary
-        vs.currentView.Backup = vs.backup
-        if idleServer != "" {
-          vs.backup = idleServer
-          vs.currentView.Backup = vs.backup
-          // fmt.Println("added backup in tick ", vs.currentView.Viewnum)
-        }
-        vs.currentView.Viewnum++
+    //primary is dead, promote backup and then try to replace it with an idleServer
+    viewChange := false
+    if vs.currentView.Primary == "dead" && vs.currentView.Backup != "" && vs.primaryAckedCurrentView {
+      vs.currentView.Primary = vs.currentView.Backup
+      if idleServer != "" {
+        vs.currentView.Backup = idleServer
       } else {
-        //the end is here!
+        vs.currentView.Backup = ""
       }
-    }
-  if !isBackup {
-    //no backup - promote idle server
-    if idleServer != "" {
-      vs.backup = idleServer
-      vs.currentView.Backup = vs.backup
-      // fmt.Println("added backup in tick ", vs.currentView.Viewnum)
       vs.currentView.Viewnum++
-    } else{
-      vs.backup = ""
-      vs.currentView.Backup = ""
+      viewChange = true
+      vs.primaryAckedCurrentView = false
+    } else if vs.currentView.Primary == "dead" && vs.currentView.Backup != "" && !vs.primaryAckedCurrentView{
+      vs.currentView.Primary = oldPrimary
+    }
+    //backup is dead, promote available idle server
+    if vs.currentView.Primary != "dead" && vs.currentView.Backup == "" {
+      if idleServer != "" && idleServer != vs.currentView.Primary {
+        vs.currentView.Backup = idleServer
+        if !viewChange{
+          vs.currentView.Viewnum++
+          viewChange = true
+          vs.primaryAckedCurrentView = false
+        }
+      } 
     }
   }
-  } else{
-    //primary is ""
 
-  }
-  // fmt.Println("The currentView: ", vs.currentView.Viewnum, vs.currentView.Primary, vs.currentView.Backup)
 }
+
 
 //
 // tell the server to shut itself down.
@@ -201,7 +206,7 @@ func StartServer(me string) *ViewServer {
   currentView.Primary = vs.primary
   currentView.Backup = vs.backup
   vs.currentView = *currentView
-  vs.primaryIsUpToDate = false
+  vs.primaryAckedCurrentView = false
 
   vs.servers = map[string]int{}
 

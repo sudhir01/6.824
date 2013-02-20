@@ -85,5 +85,6 @@ type GetReply struct {
 //
 type ServerStatus struct {
 	LastViewNum uint
+	CurrentViewNum uint
 	LastPingTime time.Time
 }
