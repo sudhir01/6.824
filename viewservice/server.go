@@ -156,7 +156,9 @@ func (vs *ViewServer) tick() {
     //primary is dead, promote backup and then try to replace it with an idleServer
     viewChange := false
     if vs.currentView.Primary == "dead" && vs.currentView.Backup != "" && vs.primaryAckedCurrentView {
+      fmt.Println("Promoting backup?", vs.currentView.Backup)
       vs.currentView.Primary = vs.currentView.Backup
+      fmt.Println("Promoted backup", vs.currentView.Primary)
       if idleServer != "" {
         vs.currentView.Backup = idleServer
       } else {
@@ -180,7 +182,7 @@ func (vs *ViewServer) tick() {
       } 
     }
   }
-
+  // fmt.Println("VS Tick", vs.currentView.Primary, vs.currentView.Backup)
 }
 
 

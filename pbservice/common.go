@@ -12,6 +12,10 @@ type PutArgs struct {
   Value string
 }
 
+type RestoreArgs struct {
+  Db map[string]string
+}
+
 type PutReply struct {
   Err Err
 }

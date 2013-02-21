@@ -50,15 +50,69 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   defer pb.mu.Unlock()
   reply.Err = OK
 
-
   // Your code here.
   if pb.state == "primary" {
+    pb.db[args.Key] = args.Value
+    ok := false
+    var backupReply PutReply
+    tries := 5
+    for !ok && pb.currentView.Backup != "" && tries > 0{
+      fmt.Println("fwding to backup...")
+      ok = call(pb.currentView.Backup, "PBServer.PutBackup", args, &backupReply)
+      if backupReply.Err == ErrWrongServer {
+        fmt.Println("what I thought was the backup isn't")
+      }
+      tries--
+      time.Sleep(viewservice.PingInterval)
+    }
+  } else {
+    reply.Err = ErrWrongServer
+  }
+
+  return nil
+}
+
+func (pb *PBServer) PutBackup(args *PutArgs, reply *PutReply) error {
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
+  reply.Err = OK
+  if pb.state == "backup" {
+    fmt.Println("backup recieved", args.Key, args.Value, pb.me)
     pb.db[args.Key] = args.Value
   } else {
     reply.Err = ErrWrongServer
   }
 
   return nil
+}
+
+func (pb *PBServer) RestoreBackup(args *RestoreArgs, reply *PutReply) error {
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
+  reply.Err = OK
+  // if pb.state == "backup" {
+    fmt.Println("backup restored")
+    pb.db = args.Db
+  // } else {
+  //   reply.Err = ErrWrongServer
+  // }
+
+  return nil
+}
+
+func (pb *PBServer) SendRestoreBackup(){
+  ok := false
+  var backupReply PutReply
+  args := &RestoreArgs{}
+  args.Db = pb.db
+  for !ok && pb.currentView.Backup != ""{
+    fmt.Println("restoring backup...")
+    ok = call(pb.currentView.Backup, "PBServer.RestoreBackup", args, &backupReply)
+    if backupReply.Err == ErrWrongServer {
+      //what I thought was the backup isn't
+      fmt.Println("backup rejected restore")
+    }
+  }
 }
 
 
@@ -73,7 +127,8 @@ func (pb *PBServer) tick() {
   defer pb.mu.Unlock()
   //ping viewserver
   view, _ := pb.vs.Ping(pb.currentView.Viewnum)
-  fmt.Println("tick ping: ", pb.me, view.Primary, view.Viewnum)
+  // fmt.Println("tick ping: ", pb.me, view.Primary, view.Backup, view.Viewnum)
+  oldView := pb.currentView
   pb.currentView = view
   if pb.currentView.Primary == pb.me {
     pb.state = "primary"
@@ -81,6 +136,14 @@ func (pb *PBServer) tick() {
     pb.state = "backup"
   } else {
     pb.state = "neither"
+  }
+  if oldView.Viewnum != view.Viewnum {
+    //view has changed - find out why
+    if view.Backup != oldView.Backup && pb.state == "primary" {
+      //backup has changed, send new backup the db
+      pb.SendRestoreBackup()
+    }
+    fmt.Println("view has changed between ticks!", pb.me, pb.currentView.Primary)
   }
 }
 

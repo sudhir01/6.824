@@ -1,0 +1,20 @@
+Test: Single primary, no backup ...
+view has changed between ticks! /var/tmp/824-501/pb-37879-basic-1 /var/tmp/824-501/pb-37879-basic-1
+  ... Passed
+Test: Add a backup ...
+view has changed between ticks! /var/tmp/824-501/pb-37879-basic-2 /var/tmp/824-501/pb-37879-basic-1
+restoring backup...
+view has changed between ticks! /var/tmp/824-501/pb-37879-basic-1 /var/tmp/824-501/pb-37879-basic-1
+view has changed between ticks! /var/tmp/824-501/pb-37879-basic-2 /var/tmp/824-501/pb-37879-basic-1
+fwding to backup...
+backup recieved 3 33 /var/tmp/824-501/pb-37879-basic-2
+fwding to backup...
+backup recieved 4 44 /var/tmp/824-501/pb-37879-basic-2
+  ... Passed
+Test: Primary failure ...
+Promoting backup? /var/tmp/824-501/pb-37879-basic-2
+Promoted backup /var/tmp/824-501/pb-37879-basic-2
+view has changed between ticks! /var/tmp/824-501/pb-37879-basic-2 /var/tmp/824-501/pb-37879-basic-2
+checking for new primary /var/tmp/824-501/pb-37879-basic-2 
+exit status 1
+FAIL	pbservice	4.936s

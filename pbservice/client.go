@@ -2,17 +2,19 @@ package pbservice
 
 import "viewservice"
 import "net/rpc"
-// You'll probably need to uncomment this:
-// import "time"
+// import "fmt"
+import "time"
 
 
 type Clerk struct {
   vs *viewservice.Clerk
+  view viewservice.View
 }
 
 func MakeClerk(vshost string, me string) *Clerk {
   ck := new(Clerk)
   ck.vs = viewservice.MakeClerk(me, vshost)
+  ck.view,_ = ck.vs.Get()
   return ck
 }
 
@@ -56,10 +58,23 @@ func call(srv string, rpcname string,
 // says the key doesn't exist (has never been Put().
 //
 func (ck *Clerk) Get(key string) string {
-
-  // Your code here.
-
-  return "???"
+  args := &GetArgs{}
+  args.Key = key
+  var reply GetReply
+  ok := false
+  for !ok {
+    ok = call(ck.view.Primary, "PBServer.Get", args, &reply)
+    if reply.Err == ErrWrongServer || !ok {
+      ck.CheckPrimary()
+      // fmt.Println("checking for new primary",ck.view.Primary, ck.view.Backup)
+    }
+    time.Sleep(viewservice.PingInterval)
+    
+  }
+  if reply.Err == OK {
+    return reply.Value
+  }
+  return ""
 }
 
 //
@@ -67,6 +82,21 @@ func (ck *Clerk) Get(key string) string {
 // must keep trying until it succeeds.
 //
 func (ck *Clerk) Put(key string, value string) {
+  args := &PutArgs{}
+  args.Key = key
+  args.Value = value
+  var reply PutReply
+  ok := false
+  for !ok {
+    ok = call(ck.view.Primary, "PBServer.Put", args, &reply)
+    if reply.Err == ErrWrongServer || !ok {
+      ck.CheckPrimary()
+    }
+    time.Sleep(viewservice.PingInterval)
+  }
+}
 
-  // Your code here.
+func (ck *Clerk) CheckPrimary() {
+  ck.view, _ = ck.vs.Get()
+  time.Sleep(viewservice.PingInterval)
 }
