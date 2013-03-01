@@ -29,7 +29,7 @@ import "sync"
 import "fmt"
 import "math/rand"
 import "math"
-import "time"
+// import "time"
 import "container/list"
 
 type Paxos struct {
@@ -153,7 +153,7 @@ func (px *Paxos) Propose(instance int, value interface{}) {
         proposalDone = true
       }
     } 
-    time.Sleep(5*time.Millisecond)   
+    // time.Sleep(5*time.Millisecond)   
   }
 }
 
