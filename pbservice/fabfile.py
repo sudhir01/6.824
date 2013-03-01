@@ -10,4 +10,4 @@ def commit_and_test():
     local("git add -p && git commit")
 
 def test():
-    local("ssh dbenhaim@athena.dialup.mit.edu \"cd 6.824/ && git pull && cd pbservice && go test\"")
+    local("ssh dbenhaim@athena.dialup.mit.edu \"cd 6.824/src/ && export GOPATH=$HOME/6.824 && git pull && cd pbservice && go test\"")
