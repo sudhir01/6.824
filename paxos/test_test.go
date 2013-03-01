@@ -411,6 +411,8 @@ func TestForgetMem(t *testing.T) {
   // m2.Alloc about 10 megabytes
 
   if m2.Alloc > (m1.Alloc / 2) {
+    fmt.Printf("m1", m1.Alloc)
+    fmt.Printf("m2", m2.Alloc)
     t.Fatalf("memory use did not shrink enough")
   }
 
