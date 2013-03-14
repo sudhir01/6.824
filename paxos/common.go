@@ -14,8 +14,8 @@ type Instance struct {
 }
 
 //constructor for instances
-func MakeInstance() *Instance {
-  instance := new(Instance)
+func MakeInstance() Instance {
+  instance := Instance{}
   instance.highestAccepted = -1
   instance.highestResponded = -1
   instance.agreed = false
@@ -62,14 +62,17 @@ type AcceptArgs struct {
 
 type AcceptReply struct {
   OK bool
+  Proposal int
   NextProposalNumber int
 }
 
 type DecidedArgs struct {
   Instance int
+  Proposal int
   Value interface{}
 }
 
 type DecidedReply struct {
   OK bool
+  NextProposalNumber int
 }

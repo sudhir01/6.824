@@ -63,6 +63,7 @@ func TestBasic(t *testing.T) {
   cka[1].Put("a", "aaa")
 
   check(t, cka[2], "a", "aaa")
+  fmt.Println("here")
   check(t, cka[1], "a", "aaa")
   check(t, ck, "a", "aaa")
 
@@ -101,6 +102,78 @@ func TestBasic(t *testing.T) {
   fmt.Printf("  ... Passed\n")
 
   time.Sleep(1 * time.Second)
+}
+
+func TestDone(t *testing.T) {
+  runtime.GOMAXPROCS(4)
+
+  const nservers = 3
+  var kva []*KVPaxos = make([]*KVPaxos, nservers)
+  var kvh []string = make([]string, nservers)
+  defer cleanup(kva)
+
+  for i := 0; i < nservers; i++ {
+    kvh[i] = port("done", i)
+  }
+  for i := 0; i < nservers; i++ {
+    kva[i] = StartServer(kvh, i)
+  }
+  ck := MakeClerk(kvh)
+  var cka [nservers]*Clerk
+  for pi := 0; pi < nservers; pi++ {
+    cka[pi] = MakeClerk([]string{kvh[pi]})
+  }
+
+  fmt.Printf("Test: server frees Paxos log memory...\n")
+
+  ck.Put("a", "aa")
+  check(t, ck, "a", "aa")
+
+  runtime.GC()
+  var m0 runtime.MemStats
+  runtime.ReadMemStats(&m0)
+  // rtm's m0.Alloc is 2 MB
+
+  sz := 1000000
+  items := 10
+
+  for iters := 0; iters < 2; iters++ {
+    for i := 0; i < items; i++ {
+      key := strconv.Itoa(i)
+      value := make([]byte, sz)
+      for j := 0; j < len(value); j++ {
+        value[j] = byte((rand.Int() % 100) + 1)
+      }
+      ck.Put(key, string(value))
+      check(t, cka[i % nservers], key, string(value))
+    }
+  }
+
+  // Put and Get to each of the replicas, in case
+  // the Done information is piggybacked on
+  // the Paxos proposer messages.
+  for iters := 0; iters < 2; iters++ {
+    for pi := 0; pi < nservers; pi++ {
+      cka[pi].Put("a", "aa")
+      check(t, cka[pi], "a", "aa")
+    }
+  }
+
+  time.Sleep(1 * time.Second)
+
+  runtime.GC()
+  var m1 runtime.MemStats
+  runtime.ReadMemStats(&m1)
+  // rtm's m1.Alloc is 45 MB
+
+  // fmt.Printf("  Memory: before %v, after %v\n", m0.Alloc, m1.Alloc)
+
+  allowed := m0.Alloc + uint64(nservers * items * sz * 2)
+  if m1.Alloc > allowed {
+    fmt.Printf("  You would fail this test if it were enabled (%v vs %v).\n", m1.Alloc, allowed)
+  }
+
+  fmt.Printf("  ... Passed\n")
 }
 
 func pp(tag string, src int, dst int) string {

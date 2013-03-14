@@ -10,12 +10,38 @@ import "os"
 import "syscall"
 import "encoding/gob"
 import "math/rand"
+import "time"
 
 
 type Op struct {
   // Your definitions here.
   // Field names must start with capital letters,
   // otherwise RPC will break.
+  Type string
+  Key string
+  Value string
+  From int
+  RequestID int
+}
+
+func MakeGetOp(optype string, key string, from int, requestID int) Op {
+  op := Op{}
+  op.Type = optype
+  op.Key = key
+  op.From = from
+  op.RequestID = requestID
+  op.Value = ""
+  return op
+}
+
+func MakePutOp(optype string, key string, value string, from int, requestID int) Op {
+  op := Op{}
+  op.Type = optype
+  op.Key = key
+  op.Value = value
+  op.From = from
+  op.RequestID = requestID
+  return op
 }
 
 type KVPaxos struct {
@@ -27,22 +53,154 @@ type KVPaxos struct {
   px *paxos.Paxos
 
   // Your definitions here.
+  currentSeq int
+  requestsSeen map[int]GetReply //from requestID -> requests seen
+  db map[string]string //key/value storage
 }
 
+// 
+// Your kvpaxos servers will use Paxos to agree on the order in which client Put()s and Get()s execute.
+// Each time a kvpaxos server receives a Put() or Get() RPC, it will use Paxos to cause some Paxos 
+// instance's value to be a description of that Put() or Get(). That instance's sequence number determines
+// when the Put() or Get() executes relative to other Put()s and Get()s. In order to find the value to 
+// be returned by a Get(), kvpaxos should first apply all Put()s that are ordered before the Get() to its key/value database.
+// 
+// You should think of kvpaxos as using Paxos to implement a "log" of Put/Get operations. That is, 
+// each Paxos instance is a log element, and the order of operations in the log is the order in which 
+// all kvpaxos servers will apply the operations to their key/value databases. Paxos will ensure that 
+// the kvpaxos servers agree on this order.
+// 
+
+func (kv *KVPaxos) Paxos(op Op) int {
+  seq := kv.currentSeq
+  for {
+    kv.px.Start(seq, op)
+    sleepTime := 10 * time.Millisecond //20 * time.Millisecond
+    var actualOp Op
+    for {
+      done, top := kv.px.Status(seq)
+      //has paxos decided? 
+      if done {
+        actualOp = top.(Op)
+        break
+      }
+      time.Sleep(sleepTime)
+      //readjust sleepTime
+      if sleepTime < 10 * time.Second {
+        sleepTime *= 2
+      }
+    }
+    if actualOp == op{
+      break;
+    } else {
+      seq++
+    }
+  }
+  //return the log seq number for the op
+  return seq
+}
+
+func (kv *KVPaxos) UpdateLocalLog(currentSeq int, seq int){
+  for i := currentSeq; i <= seq; i++ {
+    if done, value := kv.px.Status(i); done {
+      iOp := value.(Op)
+      if iOp.Type == PUT {
+        if _, ok := kv.requestsSeen[iOp.RequestID]; !ok {
+          var reply GetReply
+          reply.Err = OK
+          kv.requestsSeen[iOp.RequestID] = reply
+          kv.db[iOp.Key] = iOp.Value
+        }
+      } else if iOp.Type == GET {
+        if _, ok := kv.requestsSeen[iOp.RequestID]; !ok {
+          var reply GetReply
+          if value, _ok := kv.db[iOp.Key]; _ok{
+            reply.Err = OK
+            reply.Value = value
+          } else {
+              reply.Err = ErrNoKey
+          }
+          kv.requestsSeen[iOp.RequestID] = reply
+        }
+      }
+    }
+  }
+} 
 
 
 func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
   // Your code here.
+  //don't forget to lock :)
+  kv.mu.Lock()
+  defer kv.mu.Unlock()
 
+  // optype, value, from, requestID
+  op := MakeGetOp(GET, args.Key, args.ClientID, args.RequestID)
 
+  
+  //check to see if we've already handled this 
+  if existingReply, ok := kv.requestsSeen[op.RequestID]; ok{
+    reply.Value = existingReply.Value
+    reply.Err = existingReply.Err
+    return nil
+  }
+
+  //send the op to paxos
+  seq := kv.Paxos(op)
+
+  //update the log from where I am to where Paxos currently is
+  cS, s := kv.currentSeq, seq
+  kv.UpdateLocalLog(cS, s) 
+
+  //fill in reply
+  if existingReply, ok := kv.requestsSeen[op.RequestID]; ok{
+    reply.Value = existingReply.Value
+    reply.Err = existingReply.Err
+  }
+
+  //call done
+  kv.px.Done(s)
+
+  //update currentSeq
+  kv.currentSeq = s + 1
   return nil
 }
 
 
 func (kv *KVPaxos) Put(args *PutArgs, reply *PutReply) error {
   // Your code here.
+  //don't forget to lock :)
+  kv.mu.Lock()
+  defer kv.mu.Unlock()
 
 
+  //optype, key, value, from, requestID
+  op := MakePutOp(PUT, args.Key, args.Value, args.ClientID, args.RequestID)
+  
+  //check to see if we've already handled this 
+  if existingReply, found := kv.requestsSeen[op.RequestID]; found{
+    reply.Err = existingReply.Err
+    return nil
+  }
+
+  //send the op to paxos
+  seq := kv.Paxos(op)
+
+  //update the log from where I am to where Paxos currently is
+  cS, s := kv.currentSeq, seq
+  //go is pass by what?
+  kv.UpdateLocalLog(cS, s) 
+
+  //update reply 
+  if existingReply, found := kv.requestsSeen[op.RequestID]; found{
+    reply.Err = existingReply.Err
+  }
+
+  //call done
+  kv.px.Done(s)
+
+  //update currentSeq
+  kv.currentSeq = s + 1
   return nil
 }
 
@@ -70,6 +228,9 @@ func StartServer(servers []string, me int) *KVPaxos {
   kv.me = me
 
   // Your initialization code here.
+  kv.db = map[string]string{}
+  kv.requestsSeen = map[int]GetReply{}
+
 
   rpcs := rpc.NewServer()
   rpcs.Register(kv)
